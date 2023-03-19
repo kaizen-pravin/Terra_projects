@@ -1,0 +1,93 @@
+# VPC Creation
+resource "aws_vpc" "example_vpc" {
+  cidr_block = "10.0.0.0/16"
+  tags = {
+    Name = "example-vpc"
+  }
+}
+
+# Subnets
+resource "aws_subnet" "web_subnet" {
+  vpc_id = aws_vpc.example_vpc.id
+  cidr_block = "10.0.1.0/24"
+  tags = {
+    Name = "web-subnet"
+  }
+}
+
+# Security Groups
+resource "aws_security_group" "web_sg" {
+  name_prefix = "web-"
+  vpc_id = aws_vpc.example_vpc.id
+  ingress {
+    from_port = 80
+    to_port = 80
+    protocol = "tcp"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+}
+
+# Elastic Load Balancer
+resource "aws_elb" "example_elb" {
+  name = "example-elb"
+  subnets = [aws_subnet.web_subnet.id]
+  security_groups = [aws_security_group.web_sg.id]
+  listener {
+    instance_port = 8080
+    instance_protocol = "http"
+    lb_port = 80
+    lb_protocol = "http"
+  }
+}
+
+# CloudFront Distribution
+resource "aws_cloudfront_distribution" "example_cloudfront" {
+  origin {
+    domain_name = aws_elb.example_elb.dns_name
+    origin_id = "example-elb"
+    custom_origin_config {
+      http_port = 80
+      https_port = 443
+      origin_protocol_policy = "https-only"
+      origin_ssl_protocols = ["TLSv1.2"]
+    }
+  }
+  enabled = true
+  is_ipv6_enabled = true
+  default_cache_behavior {
+    allowed_methods = ["GET", "HEAD"]
+    cached_methods = ["GET", "HEAD"]
+    target_origin_id = "example-elb"
+    forwarded_values {
+      query_string = true
+      cookies {
+        forward = "all"
+      }
+    }
+    viewer_protocol_policy = "redirect-to-https"
+    min_ttl = 0
+    default_ttl = 86400
+    max_ttl = 31536000
+  }
+  price_class = "PriceClass_100"
+  restrictions {
+    geo_restriction {
+      restriction_type = "none"
+    }
+  }
+  viewer_certificate {
+    cloudfront_default_certificate = true
+  }
+}
+
+# Route 53 Record
+resource "aws_route53_record" "example_record" {
+  name = "example.com"
+  type = "A"
+  alias {
+    name = aws_cloudfront_distribution.example_cloudfront.domain_name
+    zone_id = aws_cloudfront_distribution.example_cloudfront.hosted_zone_id
+    evaluate_target_health = true
+  }
+  zone_id = "your_zone_id"
+}
